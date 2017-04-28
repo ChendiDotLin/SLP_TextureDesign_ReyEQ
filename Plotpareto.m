@@ -8,7 +8,8 @@ DATA9=fopt{1,2};
 X9=DATA9(1,:);
 Y9=DATA9(2,:);
 %}
-DATA1=results{1,3};
+load('results.mat');
+DATA1=fopt{1,3};
 X1=DATA1(1,:);
 Y1=-DATA1(2,:)
 %{
@@ -17,19 +18,19 @@ X4=DATA4(1,:);
 Y4=-DATA4(2,:);
 %}
 
-DATA2=results{1,4};
+DATA2=fopt{1,4};
 X2=DATA2(1,:);
 Y2=-DATA2(2,:);
 
-DATA3=results{1,5};
+DATA3=fopt{1,5};
 X3=DATA3(1,:);
 Y3=-DATA3(2,:);
 
-DATA5=results{1,6};
+DATA5=fopt{1,6};
 X5=DATA5(1,:);
 Y5=-DATA5(2,:);
 
-DATA6=results{1,7};
+DATA6=fopt{1,7};
 X6=DATA6(1,:);
 Y6=-DATA6(2,:);
 

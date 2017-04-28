@@ -1,17 +1,25 @@
 % In this program, we still use normal force as the objective function, and
 % use the linearized tau as the inequality constraint
+% MOSEK Toolbox is needed in this program
+
 function[Fopt,taustaropt1] = LP(alpha,taunow)
-
 % given step size and taustar we want
-
 clc
 
+% setup the path of solver and the optimizer
 currentpath = pwd;
 if ispc; dirsep = '\'; elseif isunix; dirsep = '/'; end;
 path(path,strcat(currentpath, dirsep, 'Solver'));
-%make it sequential
-%design variable x = [h;dp]
+
+% make it sequential
+% design variable x = [h;dp]
 % now h is N*(N+1), so is dpdtheta
+
+% This path is used for mac
+%addpath '/Users/apple/mosek/7/toolbox/r2013aom/'
+
+% This path is used for windows
+addpath 'C:\Program Files\Mosek\8\toolbox\r2014aom'
 
 format long; 
 opt.R1 = 0.01e-3;
@@ -34,7 +42,8 @@ b1 = opt.b1;        % Viscosity [1.4]
 b2 = opt.b2;        % Second-order fluid parameter, [0]
 Ntex = 2*pi/phi;    % Number of periodic sectors, [10]
 region = 0.1; reg_for_dp =100; % set trust region for both h and dp
-error = 0.01; % initialize error
+error = 0.01;       % initialize error
+count = 1;          % Number of iterations
 
 % starting point
 h_opt = load('startpoint.mat');
@@ -67,23 +76,23 @@ R = kron(I,R1d);
 Rinv1d = diag(1./r);
 Rinv = kron(I,Rinv1d);
 
-dr = kron(I,Dh);  %take derivative of p wrt r
-dtheta = kron(Dh,I);  % take derivative of p wrt theta
-dd = [dr;dtheta];    % take derivative of lagrange polynomial of the whole p
-intedp = (pinv(dd'*dd))*(dd');   %integrate dp to find out p
-intep = ((kron(w,w)).*(kron((ones(N+1,1)),r)))'; %integrate p to find out normal force
+dr = kron(I,Dh);                                    % take derivative of p with respect to r
+dtheta = kron(Dh,I);                                % take derivative of p with respect to theta
+dd = [dr;dtheta];                                   % take derivative of lagrange polynomial of the whole p
+intedp = (pinv(dd'*dd))*(dd');                      % integrate dp to find out p
+intep = ((kron(w,w)).*(kron((ones(N+1,1)),r)))';    % integrate p to find out normal force
 
 h = zeros((N+1)*N);
 dpopt = 1.1e6*ones(2*(N+1)^2,1);
-ct = [ zeros(1,length(h)),intep*intedp]; %integral of dp to find out normal force 
+ct = [ zeros(1,length(h)),intep*intedp];            % integral of dp twice to find out normal force 
 % design variable x = [h;dp]
 
-% find normal force values and taustar values of initial guess
+% find normal force values and taustar values of the starting point
 [Fn_initial,tau_initial] = Reynolds_Tex4(reshape(kron(Q,I)*hopt,N+1,N+1),0,10);
 taustaropt = tau_initial;
 fopt = Fn_initial;
 
-while(error>=0.01)
+while(error>=0.002)
     count = count+1;
     hopt = max(h0*ones(N*(N+1),1),hopt); hopt = min(hmax*ones(N*(N+1),1),hopt);
     % check boundary condition
@@ -104,9 +113,9 @@ while(error>=0.01)
     VAGUE = zeros((N+1)^2,(N+1)^2);
     
     % to find pr and ptheta at this point, we still need the solver
-    H0 = reshape(hguess,(N+1),(N+1)); %original h
-    H00 = diag(hguess);   %diagonal matrix of h
-    [pref2,dp0,~,~,~,~,~,~] = Reynolds_Tex3(H0,0,10); %here we found p0 and dp0
+    H0 = reshape(hguess,(N+1),(N+1));                   % original h
+    H00 = diag(hguess);                                 % diagonal matrix of h
+    [pref2,dp0,~,~,~,~,~,~] = Reynolds_Tex3(H0,0,10);   % here we found p0 and dp0
     
     dpdr0 = dp0(1:(N+1)^2);
     dpdtheta0 = dp0((N+1)^2+1:2*(N+1)^2);
@@ -140,7 +149,7 @@ while(error>=0.01)
     beq = [b1eq;b2eq];
     
     
-    %objective function
+    % objective function
     c1  =  (h0/(pi*(R2)^4*Omega*b1))*(Rdiff*phi/2)*Ntex;
     rmat = reshape(Rmat,(N+1)^2,1);
     RSQU = diag(rmat.^2);
@@ -155,7 +164,8 @@ while(error>=0.01)
     
     % set the taustar value we want here
     bin1 = taunow-c1*A1*HELPERConst;
-    
+    bin3 = -taunow + 0.01 + c1*A1*HELPERConst;
+
     
     % the objective function should be normal force 
     
@@ -179,7 +189,7 @@ while(error>=0.01)
     Ain2 = [zeros(1,N*(N+1)),-0.5*w'*prefhelper*intedp];
     bin2 = -0.5*w'*prefhelper*intedp*dp0;
     
-    
+
     
     % boundary condition
     glbforh = h0*ones((N+1)*N,1);
@@ -222,25 +232,51 @@ while(error>=0.01)
         dpdthetaopt(i+(N+1)*N) = xopt(2*(N+1)*N+(N+1)^2+i);
     end
     
-    [fopt,~] = Reynolds_Tex4(reshape(kron(Q,I)*hopt,N+1,N+1),0,10);
+    [fopt,tauopt] = Reynolds_Tex4(reshape(kron(Q,I)*hopt,N+1,N+1),0,10);
     % get fopt from solver
     
     % if normal force is smaller, then apply step size
-    if (fopt < fguess)
+    % set up constants of step size
+    n1 = 0.01; n2 = 0.9; r1 = 0.5; r2 = 0.5;
+    fopt_esti = [zeros(1,(N+1)*N),normalforce]*xopt + Ntex*(Rdiff/2)*(phi/2)*(kron(w,w))'*diag(rmat)*HelperIn;
+    tau_esti = Ain1*xopt+c1*A1*HELPERConst;
+    pk = (fguess - fopt)/(fguess-fopt_esti);
+%{
+    if ((pk < n1) && (abs(tauopt-taunow) > 0.05))
         s = hopt - hguessstar;
         hopt = hguessstar + alpha*s;
         [fopt,~] = Reynolds_Tex4(reshape(kron(Q,I)*hopt,N+1,N+1),0,10);
     end
+    %}
     
+    if (pk < n1)
+        s = hopt - hguessstar;
+        hopt = hguessstar + alpha*s;
+        [fopt,~] = Reynolds_Tex4(reshape(kron(Q,I)*hopt,N+1,N+1),0,10);
+    end
+    %}
+    %{
+    if (pk >= n2)
+        region = region *1.5; reg_for_dp = reg_for_dp*1.5;
+    elseif (pk >=n1)
+        region = region*0.75; reg_for_dp = reg_for_dp*0.75;
+    else 
+        region = r1*region; reg_for_dp = r1*reg_for_dp;
+    end
+    %}
+ 
+
+    % Update the error in this iteration
+    %error = abs(fopt_esti-fopt)/abs(fopt)
+    error = abs(tauopt-tau_esti)
     
-    error1 = abs(fopt-fguess)/abs(fguess);
-    error = error1;
-    if (count>100)
+    % If maximum iteration reached
+    if (count>40)
         break;
     end
     
 end
-%while loop end
+% while loop end
 
 % post process
 % hopt = hguessstar;
